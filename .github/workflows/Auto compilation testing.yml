@@ -124,19 +124,19 @@ jobs:
         
         # 动态生成根目录下的包目录列表
         echo "Detecting root package directories:"
-        PACKAGES=$(ls -d ../*/ 2>/dev/null | sed 's/..\///' | sed 's|/||' || echo "")
+        PACKAGES=$(cd .. && ls -d */ 2>/dev/null | sed 's|/||' || echo "")
         if [ -z "$PACKAGES" ]; then
           echo "No package directories found in root."
         else
           echo "Found packages: $PACKAGES"
         fi
         
-        # 调试：输出匹配的更改文件
+        # 调试：输出匹配的更改文件（包括子目录）
         echo "Files under root package directories:"
         git diff --name-only $BASE_SHA $HEAD_SHA | grep -E "^($PACKAGES)/" || echo "No files found under root package directories"
         
-        # 获取更改目录
-        CHANGED_DIRS=$(git diff --name-only $BASE_SHA $HEAD_SHA | grep -E "^($PACKAGES)/" | awk -F'/' '{print $1}' | sort -u | tr '\n' ',' | sed 's/,$//')
+        # 获取更改目录（提取子目录）
+        CHANGED_DIRS=$(git diff --name-only $BASE_SHA $HEAD_SHA | grep -E "^($PACKAGES)/" | awk -F'/' '{print $2}' | sort -u | tr '\n' ',' | sed 's/,$//')
         
         # 如果没有更改目录，设置为空
         if [ -z "$CHANGED_DIRS" ]; then
@@ -190,14 +190,16 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a -f -p passwall_packages
 
-        # 同步根目录的包到 feeds
-        for dir in $PACKAGES; do
-          if [ -d "../../$dir" ]; then
-            echo "Syncing $dir from repository root to package/feeds/passwall_packages/"
-            rm -rf package/feeds/passwall_packages/$dir
-            cp -r ../../$dir package/feeds/passwall_packages/
-          fi
-        done
+        # 同步 openwrt-passwall-packages 下的包到 feeds
+        if [ -d "../../openwrt-passwall-packages" ]; then
+          for dir in $(cd ../../openwrt-passwall-packages && ls -d */ 2>/dev/null | sed 's|/||'); do
+            if [ -d "../../openwrt-passwall-packages/$dir" ]; then
+              echo "Syncing $dir from openwrt-passwall-packages to package/feeds/passwall_packages/openwrt-passwall-packages/"
+              rm -rf package/feeds/passwall_packages/openwrt-passwall-packages/$dir
+              cp -r ../../openwrt-passwall-packages/$dir package/feeds/passwall_packages/openwrt-passwall-packages/
+            fi
+          done
+        fi
 
         rm -rf feeds/packages/lang/golang
         git clone https://github.com/sbwml/packages_lang_golang -b 25.x feeds/packages/lang/golang
