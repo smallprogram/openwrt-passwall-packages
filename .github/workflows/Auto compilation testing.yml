@@ -116,11 +116,25 @@ jobs:
       run: |
         echo "Base SHA: $BASE_SHA"
         echo "Head SHA: $HEAD_SHA"
-        CHANGED_DIRS=$(git diff --name-only $BASE_SHA $HEAD_SHA | grep '^package/feeds/passwall_packages/' | awk -F'/' '{print $4}' | sort -u | tr '\n' ',')
-        CHANGED_DIRS=${CHANGED_DIRS%,}
-        echo "Changed directories: $CHANGED_DIRS"
+        
+        echo "Full git diff output:"
+        git diff --name-only $BASE_SHA $HEAD_SHA || echo "git diff failed"
+        
+        echo "Files under package/feeds/passwall_packages/:"
+        git diff --name-only $BASE_SHA $HEAD_SHA | grep '^package/feeds/passwall_packages/' || echo "No files found under package/feeds/passwall_packages/"
+        
+        # 获取更改目录
+        CHANGED_DIRS=$(git diff --name-only $BASE_SHA $HEAD_SHA | grep '^package/feeds/passwall_packages/' | awk -F'/' '{print $4}' | sort -u | tr '\n' ',' | sed 's/,$//')
+        
+        # 如果没有更改目录，设置为空
+        if [ -z "$CHANGED_DIRS" ]; then
+          echo "No changed directories found."
+          CHANGED_DIRS=""
+        else
+          echo "Changed directories: $CHANGED_DIRS"
+        fi
+        
         echo "CHANGED_DIRS=$CHANGED_DIRS" >> $GITHUB_ENV
-
     - name: Skip if no relevant changes
       if: env.CHANGED_DIRS == ''
       run: |
