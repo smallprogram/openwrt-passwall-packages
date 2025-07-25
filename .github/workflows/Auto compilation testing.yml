@@ -27,7 +27,6 @@ jobs:
   job_auto_compile:
     runs-on: ubuntu-22.04
     name: test build (${{ matrix.platform }})
-    # Skip if the push is from a PR merge (detected by PR number or merge-related message)
     if: github.event_name == 'pull_request' || (github.event_name == 'push' && !contains(github.event.head_commit.message, 'Merge pull request') && !contains(github.event.head_commit.message, '#'))
     strategy:
       fail-fast: false
@@ -94,6 +93,9 @@ jobs:
       with:
         fetch-depth: 0
 
+    - name: Fetch all history
+      run: git fetch origin +refs/heads/*:refs/remotes/origin/*
+
     - name: Setup variables
       run: |
         if [ "${{ github.event_name }}" == "pull_request" ]; then
@@ -108,7 +110,6 @@ jobs:
           echo "is push event!"
           echo "BASE_SHA:${{ github.event.before }}"
           echo "HEAD_SHA:${{ github.event.after }}"
-          echo "COMMIT_MESSAGE=${{ github.event.head_commit.message }}" >> $GITHUB_ENV
         fi
 
     - name: Detect Changed Directories
@@ -117,14 +118,25 @@ jobs:
         echo "Base SHA: $BASE_SHA"
         echo "Head SHA: $HEAD_SHA"
         
+        # 调试：输出完整的 git diff 结果
         echo "Full git diff output:"
         git diff --name-only $BASE_SHA $HEAD_SHA || echo "git diff failed"
         
-        echo "Files under package/feeds/passwall_packages/:"
-        git diff --name-only $BASE_SHA $HEAD_SHA | grep '^package/feeds/passwall_packages/' || echo "No files found under package/feeds/passwall_packages/"
+        # 动态生成根目录下的包目录列表
+        echo "Detecting root package directories:"
+        PACKAGES=$(ls -d ../*/ 2>/dev/null | sed 's/..\///' | sed 's|/||' || echo "")
+        if [ -z "$PACKAGES" ]; then
+          echo "No package directories found in root."
+        else
+          echo "Found packages: $PACKAGES"
+        fi
+        
+        # 调试：输出匹配的更改文件
+        echo "Files under root package directories:"
+        git diff --name-only $BASE_SHA $HEAD_SHA | grep -E "^($PACKAGES)/" || echo "No files found under root package directories"
         
         # 获取更改目录
-        CHANGED_DIRS=$(git diff --name-only $BASE_SHA $HEAD_SHA | grep '^package/feeds/passwall_packages/' | awk -F'/' '{print $4}' | sort -u | tr '\n' ',' | sed 's/,$//')
+        CHANGED_DIRS=$(git diff --name-only $BASE_SHA $HEAD_SHA | grep -E "^($PACKAGES)/" | awk -F'/' '{print $1}' | sort -u | tr '\n' ',' | sed 's/,$//')
         
         # 如果没有更改目录，设置为空
         if [ -z "$CHANGED_DIRS" ]; then
@@ -135,10 +147,11 @@ jobs:
         fi
         
         echo "CHANGED_DIRS=$CHANGED_DIRS" >> $GITHUB_ENV
+
     - name: Skip if no relevant changes
       if: env.CHANGED_DIRS == ''
       run: |
-        echo "No changes detected in package/feeds/passwall_packages. Skipping compilation."
+        echo "No changes detected in package directories. Skipping compilation."
         exit 0
 
     - name: Initialization ${{ matrix.platform }} compile environment
@@ -177,6 +190,15 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a -f -p passwall_packages
 
+        # 同步根目录的包到 feeds
+        for dir in $PACKAGES; do
+          if [ -d "../../$dir" ]; then
+            echo "Syncing $dir from repository root to package/feeds/passwall_packages/"
+            rm -rf package/feeds/passwall_packages/$dir
+            cp -r ../../$dir package/feeds/passwall_packages/
+          fi
+        done
+
         rm -rf feeds/packages/lang/golang
         git clone https://github.com/sbwml/packages_lang_golang -b 25.x feeds/packages/lang/golang
 
@@ -200,13 +222,21 @@ jobs:
         IFS=',' read -ra DIRS <<< "$CHANGED_DIRS"
         for DIR in "${DIRS[@]}"; do
           if [ -d "package/feeds/passwall_packages/$DIR" ]; then
+            echo "Compiling changes in directory: $DIR (already in feeds)"
+            make package/feeds/passwall_packages/$DIR/compile -j$(nproc) V=s || {
+              echo "Compilation failed for $DIR on ${{ matrix.platform }}"
+              exit 1
+            }
+          elif [ -d "../../$DIR" ]; then
+            echo "Copying $DIR from repository root to package/feeds/passwall_packages/"
+            cp -r ../../$DIR package/feeds/passwall_packages/
             echo "Compiling changes in directory: $DIR"
             make package/feeds/passwall_packages/$DIR/compile -j$(nproc) V=s || {
               echo "Compilation failed for $DIR on ${{ matrix.platform }}"
               exit 1
             }
           else
-            echo "Directory package/feeds/passwall_packages/$DIR does not exist"
+            echo "Directory $DIR does not exist in package/feeds/passwall_packages/ or repository root"
             exit 1
           fi
         done
