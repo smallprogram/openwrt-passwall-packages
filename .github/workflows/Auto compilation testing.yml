@@ -124,7 +124,7 @@ jobs:
         
         # 动态生成根目录下的包目录列表
         echo "Detecting root package directories:"
-        PACKAGES=$(cd .. && ls -d */ 2>/dev/null | sed 's|/||' || echo "")
+        PACKAGES=$(ls -d */ 2>/dev/null | sed 's|/||' || echo "")
         if [ -z "$PACKAGES" ]; then
           echo "No package directories found in root."
         else
