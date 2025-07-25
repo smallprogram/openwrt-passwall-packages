@@ -1,6 +1,6 @@
 #
 # Copyright (c) 2023-2024 SMALLPROGRAM <https://github.com/smallprogram>
-# Description: Automated compilation testing for PRs and direct pushes, skipping PR merges
+# Description: Automated compilation testing for PRs and direct pushes, skipping all PR merges
 #
 
 name: Auto compilation testing
@@ -27,8 +27,8 @@ jobs:
   job_auto_compile:
     runs-on: ubuntu-22.04
     name: test build (${{ matrix.platform }})
-    # Skip if the push is from a PR merge
-    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.event.head_commit.message != 'Merge pull request')
+    # Skip if the push is from a PR merge (detected by PR number or merge-related message)
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && !contains(github.event.head_commit.message, 'Merge pull request') && !contains(github.event.head_commit.message, '#'))
     strategy:
       fail-fast: false
       matrix:
@@ -108,6 +108,7 @@ jobs:
           echo "is push event!"
           echo "BASE_SHA:${{ github.event.before }}"
           echo "HEAD_SHA:${{ github.event.after }}"
+          echo "COMMIT_MESSAGE=${{ github.event.head_commit.message }}" >> $GITHUB_ENV
         fi
 
     - name: Detect Changed Directories
